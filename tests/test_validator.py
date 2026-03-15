@@ -3,7 +3,6 @@
 from mm2hunter.scraper.validator import (
     SiteValidator,
     STRIPE_HTML_INDICATORS,
-    WALLET_KEYWORDS,
     _detect_stripe_fast,
     _detect_wallet_fast,
     _check_harvester_fast,
@@ -12,7 +11,7 @@ from mm2hunter.scraper.validator import (
 
 
 # ---------------------------------------------------------------------------
-# Fast stripe detection
+# Fast stripe detection (pre-compiled combined regex)
 # ---------------------------------------------------------------------------
 
 def test_stripe_detection_positive():
@@ -60,6 +59,7 @@ def test_stripe_detection_data_attribute():
 
 def test_stripe_detection_stripe_element_class():
     html = '<div class="StripeElement">card input</div>'
+    # "stripeelement" is in our indicators lowercased
     detected, _ = _detect_stripe_fast(html.lower())
     assert detected is True
 
@@ -71,8 +71,20 @@ def test_stripe_detection_load_stripe_js():
     assert any("script:" in e for e in evidence)
 
 
+def test_stripe_detection_confirm_payment():
+    html = '<script>stripe.confirmCardPayment(clientSecret);</script>'
+    detected, evidence = _detect_stripe_fast(html.lower())
+    assert detected is True
+
+
+def test_stripe_detection_payment_intent():
+    html = '<script>var x = "payment_intent_abc123";</script>'
+    detected, evidence = _detect_stripe_fast(html.lower())
+    assert detected is True
+
+
 # ---------------------------------------------------------------------------
-# Wallet detection
+# Wallet detection (pre-compiled combined regex)
 # ---------------------------------------------------------------------------
 
 def test_wallet_detection_add_funds():
@@ -101,7 +113,7 @@ def test_wallet_detection_deposit():
 
 
 # ---------------------------------------------------------------------------
-# Harvester detection (fast)
+# Harvester detection (fast, pre-compiled)
 # ---------------------------------------------------------------------------
 
 def test_harvester_found():
@@ -138,6 +150,22 @@ def test_harvester_multiple_prices():
     found, _, price = _check_harvester_fast(html.lower())
     assert found is True
     assert price == 3.00
+
+
+def test_harvester_sold_out():
+    html = '<div>Harvester $4.00 Sold Out</div>'
+    found, in_stock, price = _check_harvester_fast(html.lower())
+    assert found is True
+    assert in_stock is False
+    assert price == 4.00
+
+
+def test_harvester_buy_now_in_stock():
+    html = '<div>Harvester $5.00</div><button>Buy Now</button>'
+    found, in_stock, price = _check_harvester_fast(html.lower())
+    assert found is True
+    assert in_stock is True
+    assert price == 5.00
 
 
 # ---------------------------------------------------------------------------

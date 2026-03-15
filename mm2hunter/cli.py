@@ -96,7 +96,7 @@ def _show_banner() -> None:
     """Print the application banner."""
     print()
     print(LINE)
-    print(f"{BOLD}{CYAN}   MM2 Shop Discovery Tool  v2.0{RESET}")
+    print(f"{BOLD}{CYAN}   MM2 Shop Discovery Tool  v2.1{RESET}")
     print(f"{DIM}   High-performance MM2 shop finder & validator{RESET}")
     print(LINE)
     print()
@@ -147,8 +147,9 @@ def _ask_runtime_params(show_deep: bool = True) -> dict:
     print(f"  {CYAN}{BOLD}Runtime Parameters{RESET}")
     print(f"  {DIM}{'─' * 40}{RESET}")
 
-    concurrency = _ask_int("Max concurrent connections (fast scan)", default=200)
+    concurrency = _ask_int("Max concurrent connections (fast scan)", default=500)
     pages = _ask_int("Pages per query (search results)", default=1)
+    search_conc = _ask_int("Search API concurrency (parallel Serper calls)", default=10)
 
     deep_scan = False
     if show_deep:
@@ -161,6 +162,7 @@ def _ask_runtime_params(show_deep: bool = True) -> dict:
     return {
         "concurrency": concurrency,
         "pages": pages,
+        "search_concurrency": search_conc,
         "deep_scan": deep_scan,
         "deep_concurrency": deep_concurrency,
     }
@@ -171,6 +173,7 @@ def _apply_params(cfg, params: dict) -> None:
     cfg.scraper.max_concurrency = params["concurrency"]
     cfg.scraper.max_threads = params["concurrency"]
     cfg.serper.pages_per_query = params["pages"]
+    cfg.serper.search_concurrency = params["search_concurrency"]
     cfg.scraper.enable_deep_scan = params["deep_scan"]
     cfg.scraper.deep_scan_concurrency = params["deep_concurrency"]
 
@@ -192,6 +195,7 @@ def _show_settings(cfg) -> None:
         ("API Keys", keys_str),
         ("Pages per Query", str(cfg.serper.pages_per_query)),
         ("Fast Scan Concurrency", str(cfg.scraper.max_concurrency)),
+        ("Search API Concurrency", str(cfg.serper.search_concurrency)),
         ("Deep Scan Enabled", "Yes" if cfg.scraper.enable_deep_scan else "No"),
         ("Deep Scan Concurrency", str(cfg.scraper.deep_scan_concurrency)),
         ("HTTP Timeout (ms)", str(cfg.scraper.timeout_ms)),

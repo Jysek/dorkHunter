@@ -1,4 +1,4 @@
-"""Tests for the search engine – query loading and pagination."""
+"""Tests for the search engine -- query loading and pagination."""
 
 import textwrap
 from pathlib import Path
@@ -88,3 +88,27 @@ def test_pages_per_query_from_env(monkeypatch):
     monkeypatch.setenv("SERPER_PAGES_PER_QUERY", "3")
     cfg = SerperConfig()
     assert cfg.pages_per_query == 3
+
+
+# ---------------------------------------------------------------------------
+# results_per_query config
+# ---------------------------------------------------------------------------
+
+def test_results_per_query_default():
+    cfg = SerperConfig()
+    assert cfg.results_per_query == 100
+
+
+def test_results_per_query_from_env(monkeypatch):
+    monkeypatch.setenv("SERPER_RESULTS_PER_QUERY", "50")
+    cfg = SerperConfig()
+    assert cfg.results_per_query == 50
+
+
+# ---------------------------------------------------------------------------
+# search_concurrency config
+# ---------------------------------------------------------------------------
+
+def test_search_concurrency_default():
+    cfg = SerperConfig()
+    assert cfg.search_concurrency == 10
