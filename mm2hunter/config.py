@@ -28,10 +28,11 @@ class SerperConfig:
 
     api_keys: list[str] = field(default_factory=list)
     base_url: str = "https://google.serper.dev/search"
-    results_per_query: int = 20  # num param sent to Serper
+    results_per_query: int = 100  # max results per page (Serper allows up to 100)
     max_retries_per_key: int = 2
     pages_per_query: int = 1  # how many pages of results to fetch per query
     queries_file: str | None = None  # path to a TXT file with custom queries
+    search_concurrency: int = 10  # concurrent Serper API calls
 
     def __post_init__(self) -> None:
         raw = os.getenv("SERPER_API_KEYS", "")
@@ -40,6 +41,12 @@ class SerperConfig:
         pages = os.getenv("SERPER_PAGES_PER_QUERY")
         if pages:
             self.pages_per_query = max(1, int(pages))
+        num = os.getenv("SERPER_RESULTS_PER_QUERY")
+        if num:
+            self.results_per_query = max(1, int(num))
+        conc = os.getenv("SERPER_SEARCH_CONCURRENCY")
+        if conc:
+            self.search_concurrency = max(1, int(conc))
         self.queries_file = os.getenv("QUERIES_FILE") or None
 
 
@@ -48,9 +55,10 @@ class ScraperConfig:
     """Playwright scraper settings."""
 
     headless: bool = True
-    timeout_ms: int = 30_000
-    max_concurrency: int = 5
-    max_threads: int = 5  # worker tasks for validation
+    timeout_ms: int = 12_000  # HTTP timeout for fast scan (ms)
+    max_concurrency: int = 500  # concurrent connections for fast scan
+    max_threads: int = 500  # alias -- worker tasks
+    deep_scan_concurrency: int = 5  # Playwright tabs for deep scan
     user_agent: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "

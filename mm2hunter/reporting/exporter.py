@@ -114,6 +114,12 @@ class RealtimeExporter:
             writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDNAMES)
             writer.writeheader()
 
+        # Throttle: avoid flushing JSON/CSV/Stats on every single result.
+        # At 500+ URLs/sec, flushing every 10 would be 50 writes/sec.
+        # Flush every 50 results = ~10 writes/sec max.
+        self._flush_counter = 0
+        self._flush_interval = 50
+
     # ----- discovered URLs ------------------------------------------------
 
     def add_discovered_url(self, url: str) -> None:
