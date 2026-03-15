@@ -1,5 +1,5 @@
 """
-Reporting module -- exports validated results to CSV, JSON, and serves a
+Reporting module – exports validated results to CSV, JSON, and serves a
 lightweight web dashboard.
 
 Includes a RealtimeExporter for incremental file updates during search
@@ -30,7 +30,7 @@ def export_json(results: list[ValidationResult], path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, default=str)
-    logger.info("JSON report saved -> %s (%d entries)", path, len(data))
+    logger.info("JSON report saved → %s (%d entries)", path, len(data))
     return path
 
 
@@ -47,7 +47,7 @@ def export_csv(results: list[ValidationResult], path: Path) -> Path:
         writer.writeheader()
         for r in results:
             writer.writerow(r.to_dict())
-    logger.info("CSV report saved  -> %s (%d entries)", path, len(results))
+    logger.info("CSV report saved  → %s (%d entries)", path, len(results))
     return path
 
 
@@ -58,8 +58,6 @@ def export_csv(results: list[ValidationResult], path: Path) -> Path:
 def summary_stats(results: list[ValidationResult]) -> dict:
     """Return a quick stats dict about the validation run."""
     passed = [r for r in results if r.passed]
-    fast = sum(1 for r in results if r.scan_mode == "fast")
-    deep = sum(1 for r in results if r.scan_mode == "deep")
     return {
         "total_scanned": len(results),
         "total_passed": len(passed),
@@ -67,20 +65,18 @@ def summary_stats(results: list[ValidationResult]) -> dict:
         "stripe_detected": sum(1 for r in results if r.has_stripe),
         "wallet_detected": sum(1 for r in results if r.has_wallet),
         "harvester_found": sum(1 for r in results if r.harvester_found),
-        "fast_scanned": fast,
-        "deep_scanned": deep,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
 # ---------------------------------------------------------------------------
-# Realtime exporter -- writes files incrementally
+# Realtime exporter – writes files incrementally
 # ---------------------------------------------------------------------------
 
 _CSV_FIELDNAMES = [
     "url", "has_stripe", "has_wallet", "harvester_found",
     "harvester_in_stock", "harvester_price", "passed", "error",
-    "scan_mode", "discovered_at",
+    "discovered_at",
 ]
 
 
@@ -101,13 +97,14 @@ class RealtimeExporter:
         self._discovered_urls: list[str] = []
         self._results: list[ValidationResult] = []
 
-        # File paths
+        # File handles (opened lazily)
         self._disc_path = self._data_dir / "discovered_urls.txt"
         self._json_path = self._data_dir / "results.json"
         self._csv_path = self._data_dir / "results.csv"
         self._stats_path = self._data_dir / "stats.json"
 
-        # Initialize empty files
+        # Initialize empty files so the dashboard / other readers
+        # always have something valid to read.
         self._disc_path.write_text("", encoding="utf-8")
         self._json_path.write_text("[]", encoding="utf-8")
         self._stats_path.write_text(json.dumps(summary_stats([])), encoding="utf-8")
@@ -129,6 +126,7 @@ class RealtimeExporter:
         """Append a single discovered URL (search phase)."""
         with self._lock:
             self._discovered_urls.append(url)
+            # Append to TXT
             with open(self._disc_path, "a", encoding="utf-8") as fh:
                 fh.write(url + "\n")
 
@@ -143,44 +141,34 @@ class RealtimeExporter:
     # ----- validation results ---------------------------------------------
 
     def add_result(self, result: ValidationResult) -> None:
-        """Append a single validation result; flush periodically."""
+        """Append a single validation result and flush all output files."""
         with self._lock:
             self._results.append(result)
-            self._flush_counter += 1
-            if self._flush_counter >= self._flush_interval:
-                self._flush_result_files()
-                self._flush_counter = 0
+            self._flush_result_files()
 
     def add_results(self, results: list[ValidationResult]) -> None:
-        """Append a batch of validation results and flush."""
+        """Append a batch of validation results and flush all output files."""
         with self._lock:
             self._results.extend(results)
             self._flush_result_files()
-            self._flush_counter = 0
-
-    def flush(self) -> None:
-        """Force-flush all pending results to disk."""
-        with self._lock:
-            self._flush_result_files()
-            self._flush_counter = 0
 
     # ----- internal flush -------------------------------------------------
 
     def _flush_result_files(self) -> None:
-        """Rewrite results.json, CSV, and stats.json."""
-        # JSON
+        """Rewrite results.json, append new row(s) to CSV, update stats.json."""
+        # -- JSON (full rewrite – small; keeps file always valid) --
         data = [r.to_dict() for r in self._results]
         with open(self._json_path, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2, default=str)
 
-        # CSV
+        # -- CSV (full rewrite so the file is always complete) --
         with open(self._csv_path, "w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDNAMES)
             writer.writeheader()
             for r in self._results:
                 writer.writerow(r.to_dict())
 
-        # Stats
+        # -- Stats --
         stats = summary_stats(self._results)
         with open(self._stats_path, "w", encoding="utf-8") as fh:
             json.dump(stats, fh, indent=2)

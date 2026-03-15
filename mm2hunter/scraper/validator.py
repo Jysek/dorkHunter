@@ -1,5 +1,5 @@
 """
-High-performance site validator for MM2 shops.
+Playwright-based scraper that validates discovered MM2 shop sites.
 
 Architecture (two-tier):
   1. **Fast Scan** -- pure async HTTP with aiohttp (500+ URLs/sec).
@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Awaitable
@@ -34,7 +33,6 @@ logger = get_logger("validator")
 # Result model
 # ---------------------------------------------------------------------------
 
-
 @dataclass
 class ValidationResult:
     url: str
@@ -46,7 +44,6 @@ class ValidationResult:
     passed: bool = False
     error: str | None = None
     stripe_evidence: list[str] = field(default_factory=list)
-    scan_mode: str = "fast"  # "fast" or "deep"
     discovered_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -61,7 +58,6 @@ class ValidationResult:
             "harvester_price": self.harvester_price,
             "passed": self.passed,
             "error": self.error,
-            "scan_mode": self.scan_mode,
             "discovered_at": self.discovered_at,
         }
 
@@ -214,7 +210,6 @@ def _check_harvester_fast(html_lower: str) -> tuple[bool, bool, float | None]:
 # SiteValidator -- two-tier architecture
 # ---------------------------------------------------------------------------
 
-
 class SiteValidator:
     """High-performance concurrent site validator.
 
@@ -231,9 +226,6 @@ class SiteValidator:
         self._vcfg = validation_cfg
 
     # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     async def validate_many(
         self,
         urls: list[str],
@@ -305,7 +297,6 @@ class SiteValidator:
                         ret = on_result(result)
                         if asyncio.iscoroutine(ret) or asyncio.isfuture(ret):
                             await ret
-
                     return result
 
             # Launch all tasks (semaphore controls actual concurrency)
@@ -533,23 +524,35 @@ class SiteValidator:
 
         except Exception as exc:
             result.error = f"{type(exc).__name__}: {exc}"
-            logger.debug("Deep scan error for %s: %s", url, result.error)
+            logger.debug("Validation error for %s: %s", url, result.error)
         finally:
             if context:
                 await context.close()
 
         status = "PASS" if result.passed else "FAIL"
+        evidence_str = ", ".join(result.stripe_evidence[:3]) if result.stripe_evidence else "none"
         logger.info(
-            "[DEEP-%s] %s  stripe=%s wallet=%s price=%s stock=%s",
-            status, url[:80], result.has_stripe,
+            "[%s] %s  stripe=%s(%s) wallet=%s price=%s stock=%s",
+            status, url[:80], result.has_stripe, evidence_str,
             result.has_wallet, result.harvester_price, result.harvester_in_stock,
         )
         return result
 
+    # ------------------------------------------------------------------
+    # Stripe detection – deep multi-layer analysis
+    # ------------------------------------------------------------------
+
     async def _detect_stripe_deep(
-        self, page, html_lower: str, network_hits: list[str],
+        self,
+        page: Page,
+        html: str,
+        html_lower: str,
+        network_hits: list[str],
     ) -> tuple[bool, list[str]]:
-        """Deep Stripe detection across all layers."""
+        """Perform deep Stripe detection across multiple layers.
+
+        Returns (detected: bool, evidence: list[str]).
+        """
         evidence: list[str] = []
 
         # Layer 1+2: HTML + script (reuse fast regex)
@@ -572,7 +575,7 @@ class SiteValidator:
         except Exception:
             pass
 
-        # Layer 5: DOM elements
+        # ---- Layer 5: DOM element inspection ----
         try:
             for sel in ['[data-stripe]', 'iframe[src*="stripe"]', '[class*="StripeElement"]']:
                 try:
@@ -583,7 +586,7 @@ class SiteValidator:
         except Exception:
             pass
 
-        # Layer 6: iframes
+        # ---- Layer 6: iframe deep inspection ----
         try:
             for frame in page.frames:
                 if "stripe" in frame.url.lower():
@@ -591,7 +594,7 @@ class SiteValidator:
         except Exception:
             pass
 
-        # Layer 7: JS globals
+        # ---- Layer 7: JavaScript global variable check ----
         try:
             js = await page.evaluate("""() => {
                 const ind = [];
@@ -612,8 +615,23 @@ class SiteValidator:
         unique = [e for e in evidence if not (e in seen or seen.add(e))]
         return len(unique) > 0, unique
 
-    async def _check_harvester_deep(
-        self, page, html_lower: str, result: ValidationResult,
+        detected = len(evidence) > 0
+        return detected, evidence
+
+    # ------------------------------------------------------------------
+    # Wallet / Add-Funds detection
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _detect_wallet(html_lower: str) -> bool:
+        return any(kw in html_lower for kw in WALLET_KEYWORDS)
+
+    # ------------------------------------------------------------------
+    # Harvester item detection
+    # ------------------------------------------------------------------
+
+    async def _check_harvester(
+        self, page: Page, html_lower: str, result: ValidationResult
     ) -> None:
         """Check Harvester with Playwright."""
         try:
@@ -624,9 +642,10 @@ class SiteValidator:
                 await links[0].click(timeout=5000)
                 await page.wait_for_timeout(2500)
                 html_lower = (await page.content()).lower()
-        except Exception:
-            pass
+            except Exception:
+                pass  # stay on the current page
 
+        # Check if "harvester" is even mentioned
         if "harvester" not in html_lower:
             result.harvester_found = False
             return
@@ -646,6 +665,29 @@ class SiteValidator:
         result.harvester_in_stock = atc_enabled or (
             not has_oos and _IN_STOCK_RE.search(html_lower) is not None
         )
+        atc_enabled = False
+        for btn in atc_btns:
+            if await btn.is_enabled():
+                atc_enabled = True
+                break
+
+        result.harvester_in_stock = atc_enabled or (not has_oos and "in stock" in html_lower)
+
+        # --- Price extraction ---
+        # Strategy: look near the word "harvester" for a dollar amount
+        price_candidates: list[float] = []
+
+        # Search page text segments around "harvester"
+        body_text = await page.inner_text("body")
+        body_lower = body_text.lower()
+        idx = body_lower.find("harvester")
+        if idx != -1:
+            window = body_text[max(0, idx - 300): idx + 500]
+            for match in PRICE_RE.finditer(window):
+                try:
+                    price_candidates.append(float(match.group(1)))
+                except ValueError:
+                    pass
 
         try:
             body = await page.inner_text("body")

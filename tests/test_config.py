@@ -1,6 +1,7 @@
 """Tests for configuration loading."""
 
-from mm2hunter.config import AppConfig, SerperConfig, ScraperConfig
+import os
+from mm2hunter.config import AppConfig, SerperConfig
 
 
 def test_default_config():
