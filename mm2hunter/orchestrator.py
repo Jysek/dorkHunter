@@ -28,7 +28,11 @@ logger = get_logger("orchestrator")
 
 
 def _save_discovered_urls(urls: list[str], data_dir: Path) -> Path:
-    """Save all discovered URLs to a TXT file BEFORE validation."""
+    """Save all discovered URLs to a TXT file BEFORE validation.
+
+    This allows users to see which sites were found even if validation
+    crashes or is interrupted.
+    """
     out_path = data_dir / "discovered_urls.txt"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as fh:
@@ -52,11 +56,7 @@ def _load_urls_from_file(path: str) -> list[str]:
         for line in fh:
             stripped = line.strip()
             if stripped and not stripped.startswith("#"):
-                # Basic URL validation
-                if stripped.startswith(("http://", "https://")):
-                    urls.append(stripped)
-                else:
-                    logger.warning("Skipping non-URL line: %s", stripped[:60])
+                urls.append(stripped)
     logger.info("Loaded %d URLs from %s", len(urls), path)
     return urls
 
@@ -70,29 +70,33 @@ async def _validate_and_report(
     urls: list[str],
     rt_exporter: RealtimeExporter | None = None,
 ) -> list[ValidationResult]:
-    """Run validation on *urls* and export reports.
+    """Run Playwright validation on *urls* and export reports.
 
-    Uses the two-tier validator: fast HTTP scan + optional deep Playwright scan.
+    If *rt_exporter* is provided, results are written in real-time
+    as each URL finishes validation.  A final batch export is still
+    performed at the end for consistency.
     """
     if not urls:
         logger.warning("No URLs to validate.")
         return []
 
-    logger.info("=== Validation Phase: %d URLs ===", len(urls))
+    logger.info("=== Validation Phase ===")
     validator = SiteValidator(cfg.scraper, cfg.validation)
 
     # Build the real-time callback
     def _on_result(result: ValidationResult) -> None:
         if rt_exporter is not None:
             rt_exporter.add_result(result)
+            logger.debug(
+                "Realtime update: %d results written so far.",
+                rt_exporter.results_count,
+            )
 
     results = await validator.validate_many(urls, on_result=_on_result)
 
     # Final batch export (ensures files are complete and consistent)
     logger.info("=== Reporting Phase ===")
     data_dir = cfg.data_dir
-    data_dir.mkdir(parents=True, exist_ok=True)
-
     export_json(results, data_dir / "results.json")
     export_csv(results, data_dir / "results.csv")
 
@@ -103,7 +107,8 @@ async def _validate_and_report(
     passed = [r for r in results if r.passed]
     logger.info(
         "Pipeline complete. %d/%d sites passed all checks.",
-        len(passed), len(results),
+        len(passed),
+        len(results),
     )
     for r in passed:
         logger.info("  -> %s  (price=$%.2f)", r.url, r.harvester_price or 0)
@@ -116,27 +121,25 @@ async def _validate_and_report(
 # ---------------------------------------------------------------------------
 
 async def run_pipeline(config: AppConfig | None = None) -> list[ValidationResult]:
-    """Execute the full discovery -> validate -> report pipeline."""
+    """Execute the full discovery -> validate -> report pipeline.
+
+    Uses RealtimeExporter so discovered URLs and validation results
+    are flushed to disk as they arrive.
+    """
     cfg = config or get_config()
 
-    # Validate that API keys exist
-    if not cfg.serper.api_keys:
-        logger.error(
-            "No Serper.dev API keys configured. "
-            "Set SERPER_API_KEYS in .env or environment."
-        )
-        return []
-
+    # Create realtime exporter
     rt_exporter = RealtimeExporter(cfg.data_dir)
 
-    # 1. Search phase
+    # 1. Search phase  – URLs are written to disk in real-time
     logger.info("=== Phase 1: Search & Discovery ===")
     engine = SearchEngine(cfg.serper)
 
+    # Use a callback to stream discovered URLs to disk
     def _on_urls_found(new_urls: list[str]) -> None:
         rt_exporter.add_discovered_urls(new_urls)
         logger.info(
-            "Discovered %d total URLs so far.",
+            "Realtime: %d total discovered URLs so far.",
             rt_exporter.discovered_count,
         )
 
@@ -148,7 +151,7 @@ async def run_pipeline(config: AppConfig | None = None) -> list[ValidationResult
         logger.warning("No URLs found -- check your API keys / queries.")
         return []
 
-    # 2 + 3. Validate & report
+    # 2 + 3. Validate & report (real-time)
     return await _validate_and_report(cfg, urls, rt_exporter=rt_exporter)
 
 
@@ -161,9 +164,10 @@ async def run_validate_raw(
 
     urls = _load_urls_from_file(url_file)
     if not urls:
-        logger.warning("No valid URLs loaded -- nothing to validate.")
+        logger.warning("No URLs loaded -- nothing to validate.")
         return []
 
+    # Create realtime exporter and pre-populate with discovered URLs
     rt_exporter = RealtimeExporter(cfg.data_dir)
     rt_exporter.add_discovered_urls(urls)
 
@@ -177,8 +181,10 @@ async def run_dashboard(config: AppConfig | None = None) -> None:
     await dash.start()
     logger.info(
         "Dashboard is live at http://%s:%s -- Press Ctrl+C to stop.",
-        cfg.dashboard.host, cfg.dashboard.port,
+        cfg.dashboard.host,
+        cfg.dashboard.port,
     )
+    # Keep running forever
     await asyncio.Event().wait()
 
 
