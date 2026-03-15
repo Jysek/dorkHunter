@@ -4,6 +4,9 @@ Orchestrator -- wires search, validation, and reporting together.
 Uses RealtimeExporter so that output files (discovered_urls.txt,
 results.json, results.csv, stats.json) are updated incrementally
 as each URL is discovered or validated.
+
+Supports both API-based (Serper.dev) and free (DuckDuckGo/Bing)
+search modes.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from mm2hunter.reporting.exporter import (
 )
 from mm2hunter.scraper.validator import SiteValidator, ValidationResult
 from mm2hunter.search.engine import SearchEngine
+from mm2hunter.search.free_engine import FreeSearchEngine
 from mm2hunter.utils.logging import get_logger
 
 logger = get_logger("orchestrator")
@@ -61,6 +65,25 @@ def _load_urls_from_file(path: str) -> list[str]:
     return urls
 
 
+def _load_queries_from_file(path: str) -> list[str]:
+    """Load queries from a plain-text file (one per line).
+
+    Blank lines and lines starting with '#' are skipped.
+    """
+    queries: list[str] = []
+    p = Path(path)
+    if not p.is_file():
+        logger.error("Queries file not found: %s", path)
+        return queries
+    with open(p, encoding="utf-8") as fh:
+        for line in fh:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                queries.append(stripped)
+    logger.info("Loaded %d queries from %s", len(queries), path)
+    return queries
+
+
 # ---------------------------------------------------------------------------
 # Validation + reporting (shared by several entry-points)
 # ---------------------------------------------------------------------------
@@ -70,7 +93,7 @@ async def _validate_and_report(
     urls: list[str],
     rt_exporter: RealtimeExporter | None = None,
 ) -> list[ValidationResult]:
-    """Run Playwright validation on *urls* and export reports.
+    """Run validation on *urls* and export reports.
 
     If *rt_exporter* is provided, results are written in real-time
     as each URL finishes validation.  A final batch export is still
@@ -80,7 +103,7 @@ async def _validate_and_report(
         logger.warning("No URLs to validate.")
         return []
 
-    logger.info("=== Validation Phase ===")
+    logger.info("=== Validation Phase: %d URLs ===", len(urls))
     validator = SiteValidator(cfg.scraper, cfg.validation)
 
     # Build the real-time callback
@@ -117,10 +140,56 @@ async def _validate_and_report(
 
 
 # ---------------------------------------------------------------------------
+# Search helpers
+# ---------------------------------------------------------------------------
+
+async def _run_search_phase(
+    cfg: AppConfig,
+    rt_exporter: RealtimeExporter,
+    custom_queries: list[str] | None = None,
+) -> list[str]:
+    """Execute search phase using the configured mode (api or free).
+
+    Returns list of discovered URL strings.
+    """
+    logger.info("=== Phase 1: Search & Discovery (mode=%s) ===", cfg.search_mode)
+
+    # Callback to stream URLs to disk
+    def _on_urls_found(new_urls: list[str]) -> None:
+        rt_exporter.add_discovered_urls(new_urls)
+        logger.info(
+            "Realtime: %d total discovered URLs so far.",
+            rt_exporter.discovered_count,
+        )
+
+    if cfg.search_mode == "free":
+        # Free mode -- no API keys needed
+        queries = custom_queries or None
+        engine = FreeSearchEngine(queries=queries)
+        search_results = await engine.search_all(on_results=_on_urls_found)
+    else:
+        # API mode -- Serper.dev
+        if custom_queries:
+            cfg.serper.queries_file = None  # override file
+        engine = SearchEngine(cfg.serper)
+        if custom_queries:
+            # Monkey-patch the queries method for this run
+            engine._get_queries = lambda: custom_queries
+        search_results = await engine.search_all(on_results=_on_urls_found)
+
+    urls = [r["url"] for r in search_results]
+    logger.info("Discovered %d unique URLs to validate.", len(urls))
+    return urls
+
+
+# ---------------------------------------------------------------------------
 # Public entry-points
 # ---------------------------------------------------------------------------
 
-async def run_pipeline(config: AppConfig | None = None) -> list[ValidationResult]:
+async def run_pipeline(
+    config: AppConfig | None = None,
+    custom_queries: list[str] | None = None,
+) -> list[ValidationResult]:
     """Execute the full discovery -> validate -> report pipeline.
 
     Uses RealtimeExporter so discovered URLs and validation results
@@ -131,24 +200,11 @@ async def run_pipeline(config: AppConfig | None = None) -> list[ValidationResult
     # Create realtime exporter
     rt_exporter = RealtimeExporter(cfg.data_dir)
 
-    # 1. Search phase  – URLs are written to disk in real-time
-    logger.info("=== Phase 1: Search & Discovery ===")
-    engine = SearchEngine(cfg.serper)
-
-    # Use a callback to stream discovered URLs to disk
-    def _on_urls_found(new_urls: list[str]) -> None:
-        rt_exporter.add_discovered_urls(new_urls)
-        logger.info(
-            "Realtime: %d total discovered URLs so far.",
-            rt_exporter.discovered_count,
-        )
-
-    search_results = await engine.search_all(on_results=_on_urls_found)
-    urls = [r["url"] for r in search_results]
-    logger.info("Discovered %d unique URLs to validate.", len(urls))
+    # 1. Search phase
+    urls = await _run_search_phase(cfg, rt_exporter, custom_queries)
 
     if not urls:
-        logger.warning("No URLs found -- check your API keys / queries.")
+        logger.warning("No URLs found -- check your configuration.")
         return []
 
     # 2 + 3. Validate & report (real-time)
@@ -188,8 +244,11 @@ async def run_dashboard(config: AppConfig | None = None) -> None:
     await asyncio.Event().wait()
 
 
-async def run_full(config: AppConfig | None = None) -> None:
+async def run_full(
+    config: AppConfig | None = None,
+    custom_queries: list[str] | None = None,
+) -> None:
     """Run the pipeline then start the dashboard."""
     cfg = config or get_config()
-    await run_pipeline(cfg)
+    await run_pipeline(cfg, custom_queries=custom_queries)
     await run_dashboard(cfg)

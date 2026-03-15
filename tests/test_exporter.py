@@ -1,16 +1,16 @@
 """Tests for the reporting / export module."""
 
-import json
 import csv
+import json
 from pathlib import Path
 
-from mm2hunter.scraper.validator import ValidationResult
 from mm2hunter.reporting.exporter import (
+    RealtimeExporter,
     export_csv,
     export_json,
     summary_stats,
-    RealtimeExporter,
 )
+from mm2hunter.scraper.validator import ValidationResult
 
 
 def _sample_results():
@@ -56,6 +56,13 @@ def test_export_csv(tmp_path: Path):
     assert reader[1]["has_stripe"] == "False"
 
 
+def test_export_csv_empty(tmp_path: Path):
+    path = tmp_path / "empty.csv"
+    export_csv([], path)
+    # Should not crash and return the path
+    assert path == path
+
+
 def test_summary_stats():
     results = _sample_results()
     stats = summary_stats(results)
@@ -64,13 +71,20 @@ def test_summary_stats():
     assert stats["stripe_detected"] == 1
 
 
+def test_summary_stats_empty():
+    stats = summary_stats([])
+    assert stats["total_scanned"] == 0
+    assert stats["total_passed"] == 0
+    assert "generated_at" in stats
+
+
 # ---------------------------------------------------------------------------
 # RealtimeExporter tests
 # ---------------------------------------------------------------------------
 
 def test_realtime_init_creates_empty_files(tmp_path: Path):
     """RealtimeExporter should create empty placeholder files on init."""
-    rt = RealtimeExporter(tmp_path / "rt_data")
+    RealtimeExporter(tmp_path / "rt_data")
 
     assert (tmp_path / "rt_data" / "discovered_urls.txt").exists()
     assert (tmp_path / "rt_data" / "results.json").exists()
@@ -106,8 +120,9 @@ def test_realtime_add_discovered_urls_batch(tmp_path: Path):
 
 
 def test_realtime_add_result_updates_all_files(tmp_path: Path):
-    """add_result should flush results.json, results.csv, and stats.json."""
-    rt = RealtimeExporter(tmp_path)
+    """add_result should flush results after reaching flush_interval."""
+    # Use flush_interval=1 to flush on every result for testing
+    rt = RealtimeExporter(tmp_path, flush_interval=1)
 
     r1 = ValidationResult(
         url="https://shop1.example.com",
@@ -153,9 +168,44 @@ def test_realtime_add_result_updates_all_files(tmp_path: Path):
     assert stats["total_failed"] == 1
 
 
+def test_realtime_throttled_flush(tmp_path: Path):
+    """With flush_interval>1, files shouldn't update on every result."""
+    rt = RealtimeExporter(tmp_path, flush_interval=5)
+
+    # Add 3 results (less than flush_interval of 5)
+    for i in range(3):
+        rt.add_result(ValidationResult(url=f"https://s{i}.com", passed=False))
+
+    # JSON should still be empty because flush hasn't triggered
+    data = json.loads((tmp_path / "results.json").read_text())
+    assert len(data) == 0
+
+    # Add 2 more to reach 5
+    for i in range(3, 5):
+        rt.add_result(ValidationResult(url=f"https://s{i}.com", passed=False))
+
+    # Now flush should have been triggered
+    data = json.loads((tmp_path / "results.json").read_text())
+    assert len(data) == 5
+
+    # In-memory should always be accurate
+    assert rt.results_count == 5
+
+
+def test_realtime_force_flush(tmp_path: Path):
+    """flush() should force write even before reaching interval."""
+    rt = RealtimeExporter(tmp_path, flush_interval=100)
+
+    rt.add_result(ValidationResult(url="https://a.com", passed=True))
+    rt.flush()
+
+    data = json.loads((tmp_path / "results.json").read_text())
+    assert len(data) == 1
+
+
 def test_realtime_results_property(tmp_path: Path):
     """The results property should return a copy of accumulated results."""
-    rt = RealtimeExporter(tmp_path)
+    rt = RealtimeExporter(tmp_path, flush_interval=1)
 
     r1 = ValidationResult(url="https://a.com", passed=True)
     r2 = ValidationResult(url="https://b.com", passed=False)
@@ -166,3 +216,15 @@ def test_realtime_results_property(tmp_path: Path):
     assert len(results) == 2
     assert results[0].url == "https://a.com"
     assert results[1].url == "https://b.com"
+
+
+def test_realtime_scan_mode_in_csv(tmp_path: Path):
+    """scan_mode should appear in CSV output."""
+    rt = RealtimeExporter(tmp_path, flush_interval=1)
+    rt.add_result(ValidationResult(
+        url="https://a.com", passed=True, scan_mode="fast",
+    ))
+
+    with open(tmp_path / "results.csv") as fh:
+        rows = list(csv.DictReader(fh))
+    assert rows[0]["scan_mode"] == "fast"

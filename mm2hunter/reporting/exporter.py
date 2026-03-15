@@ -1,9 +1,12 @@
 """
-Reporting module – exports validated results to CSV, JSON, and serves a
+Reporting module -- exports validated results to CSV, JSON, and serves a
 lightweight web dashboard.
 
 Includes a RealtimeExporter for incremental file updates during search
 and validation phases.
+
+Performance: throttled flushing (every N results) to reduce I/O at high
+throughput (500+ URLs/sec).
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ def export_json(results: list[ValidationResult], path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, default=str)
-    logger.info("JSON report saved → %s (%d entries)", path, len(data))
+    logger.info("JSON report saved -> %s (%d entries)", path, len(data))
     return path
 
 
@@ -47,7 +50,7 @@ def export_csv(results: list[ValidationResult], path: Path) -> Path:
         writer.writeheader()
         for r in results:
             writer.writerow(r.to_dict())
-    logger.info("CSV report saved  → %s (%d entries)", path, len(results))
+    logger.info("CSV report saved  -> %s (%d entries)", path, len(results))
     return path
 
 
@@ -70,13 +73,13 @@ def summary_stats(results: list[ValidationResult]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Realtime exporter – writes files incrementally
+# Realtime exporter -- writes files incrementally with throttling
 # ---------------------------------------------------------------------------
 
 _CSV_FIELDNAMES = [
     "url", "has_stripe", "has_wallet", "harvester_found",
     "harvester_in_stock", "harvester_price", "passed", "error",
-    "discovered_at",
+    "scan_mode", "discovered_at",
 ]
 
 
@@ -85,9 +88,12 @@ class RealtimeExporter:
 
     Keeps ``discovered_urls.txt``, ``results.json``, ``results.csv``,
     and ``stats.json`` up-to-date as URLs are discovered and validated.
+
+    Throttles writes: flushes every ``flush_interval`` results to avoid
+    excessive I/O at high throughput.
     """
 
-    def __init__(self, data_dir: Path) -> None:
+    def __init__(self, data_dir: Path, flush_interval: int = 50) -> None:
         self._data_dir = data_dir
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -97,28 +103,27 @@ class RealtimeExporter:
         self._discovered_urls: list[str] = []
         self._results: list[ValidationResult] = []
 
-        # File handles (opened lazily)
+        # File paths
         self._disc_path = self._data_dir / "discovered_urls.txt"
         self._json_path = self._data_dir / "results.json"
         self._csv_path = self._data_dir / "results.csv"
         self._stats_path = self._data_dir / "stats.json"
 
-        # Initialize empty files so the dashboard / other readers
-        # always have something valid to read.
+        # Initialize empty files so readers always have valid data
         self._disc_path.write_text("", encoding="utf-8")
         self._json_path.write_text("[]", encoding="utf-8")
-        self._stats_path.write_text(json.dumps(summary_stats([])), encoding="utf-8")
+        self._stats_path.write_text(
+            json.dumps(summary_stats([])), encoding="utf-8",
+        )
 
         # CSV: write header
         with open(self._csv_path, "w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=_CSV_FIELDNAMES)
             writer.writeheader()
 
-        # Throttle: avoid flushing JSON/CSV/Stats on every single result.
-        # At 500+ URLs/sec, flushing every 10 would be 50 writes/sec.
-        # Flush every 50 results = ~10 writes/sec max.
+        # Throttle: flush every N results
         self._flush_counter = 0
-        self._flush_interval = 50
+        self._flush_interval = max(1, flush_interval)
 
     # ----- discovered URLs ------------------------------------------------
 
@@ -126,7 +131,6 @@ class RealtimeExporter:
         """Append a single discovered URL (search phase)."""
         with self._lock:
             self._discovered_urls.append(url)
-            # Append to TXT
             with open(self._disc_path, "a", encoding="utf-8") as fh:
                 fh.write(url + "\n")
 
@@ -141,22 +145,31 @@ class RealtimeExporter:
     # ----- validation results ---------------------------------------------
 
     def add_result(self, result: ValidationResult) -> None:
-        """Append a single validation result and flush all output files."""
+        """Append a single validation result and conditionally flush."""
         with self._lock:
             self._results.append(result)
-            self._flush_result_files()
+            self._flush_counter += 1
+            if self._flush_counter >= self._flush_interval:
+                self._flush_result_files()
+                self._flush_counter = 0
 
     def add_results(self, results: list[ValidationResult]) -> None:
-        """Append a batch of validation results and flush all output files."""
+        """Append a batch of validation results and flush."""
         with self._lock:
             self._results.extend(results)
             self._flush_result_files()
 
+    def flush(self) -> None:
+        """Force flush all pending results to disk."""
+        with self._lock:
+            self._flush_result_files()
+            self._flush_counter = 0
+
     # ----- internal flush -------------------------------------------------
 
     def _flush_result_files(self) -> None:
-        """Rewrite results.json, append new row(s) to CSV, update stats.json."""
-        # -- JSON (full rewrite – small; keeps file always valid) --
+        """Rewrite results.json, results.csv, and stats.json."""
+        # -- JSON (full rewrite -- keeps file always valid) --
         data = [r.to_dict() for r in self._results]
         with open(self._json_path, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2, default=str)

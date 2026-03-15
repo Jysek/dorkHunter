@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 from aiohttp import web
-from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 
 from mm2hunter.config import DashboardConfig
 from mm2hunter.reporting.dashboard import Dashboard
@@ -28,6 +27,7 @@ def data_dir(tmp_path: Path) -> Path:
             "harvester_price": 4.50,
             "passed": True,
             "error": None,
+            "scan_mode": "fast",
             "discovered_at": "2026-03-14T12:00:00+00:00",
         }
     ]
@@ -48,6 +48,15 @@ def data_dir(tmp_path: Path) -> Path:
     # Write discovered URLs
     (d / "discovered_urls.txt").write_text(
         "https://shop1.example.com\nhttps://shop2.example.com\n"
+    )
+
+    # Write a sample CSV
+    (d / "results.csv").write_text(
+        "url,has_stripe,has_wallet,harvester_found,"
+        "harvester_in_stock,harvester_price,passed,error,"
+        "scan_mode,discovered_at\n"
+        "https://shop1.example.com,True,True,True,True,4.5,True,,"
+        "fast,2026-03-14T12:00:00+00:00\n"
     )
 
     return d
@@ -109,6 +118,12 @@ async def test_api_stats(aiohttp_client, dashboard_app):
 async def test_api_discovered(aiohttp_client, dashboard_app):
     client = await aiohttp_client(dashboard_app)
     resp = await client.get("/api/discovered")
+    assert resp.status == 200
+
+
+async def test_api_results_csv(aiohttp_client, dashboard_app):
+    client = await aiohttp_client(dashboard_app)
+    resp = await client.get("/api/results?format=csv")
     assert resp.status == 200
 
 

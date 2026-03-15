@@ -1,0 +1,16 @@
+# MM2 Shop Discovery -- Custom Search Queries
+# One query per line. Lines starting with # are comments.
+# These queries are used when loading from file (menu option 6).
+#
+# Tip: Use quotes around exact phrases for better results.
+
+"Murder Mystery 2" "Harvester" buy shop stripe
+"MM2" shop "Harvester" buy "Add Funds"
+"Murder Mystery 2" store Harvester cheap wallet
+"MM2" godly Harvester shop payment stripe wallet
+"Roblox MM2" buy "Harvester" "add funds" stripe checkout
+buy MM2 Harvester cheap "add funds" wallet
+"MM2 shop" Harvester price stock stripe
+"Murder Mystery 2" items shop "Harvester" stock
+"MM2" "Harvester" price "in stock" "add to cart"
+"Murder Mystery 2" "Powered by Stripe" Harvester shop
