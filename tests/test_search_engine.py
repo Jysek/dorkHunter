@@ -3,9 +3,8 @@
 import textwrap
 from pathlib import Path
 
-from mm2hunter.search.engine import DEFAULT_QUERIES, SearchEngine, load_queries_from_file
 from mm2hunter.config import SerperConfig
-
+from mm2hunter.search.engine import DEFAULT_QUERIES, SearchEngine, load_queries_from_file
 
 # ---------------------------------------------------------------------------
 # load_queries_from_file
@@ -48,6 +47,7 @@ def test_load_queries_empty_file(tmp_path: Path):
 def test_engine_uses_default_queries():
     cfg = SerperConfig()
     cfg.api_keys = ["fake_key"]
+    cfg.queries_file = None  # Explicitly no file
     engine = SearchEngine(cfg)
     queries = engine._get_queries()
     assert queries == DEFAULT_QUERIES

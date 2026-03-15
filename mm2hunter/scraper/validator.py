@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Callable, Awaitable
 
 import aiohttp
 
@@ -33,6 +34,7 @@ logger = get_logger("validator")
 # Result model
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ValidationResult:
     url: str
@@ -43,6 +45,7 @@ class ValidationResult:
     harvester_price: float | None = None
     passed: bool = False
     error: str | None = None
+    scan_mode: str = "fast"
     stripe_evidence: list[str] = field(default_factory=list)
     discovered_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
@@ -58,6 +61,7 @@ class ValidationResult:
             "harvester_price": self.harvester_price,
             "passed": self.passed,
             "error": self.error,
+            "scan_mode": self.scan_mode,
             "discovered_at": self.discovered_at,
         }
 
@@ -79,6 +83,12 @@ STRIPE_HTML_INDICATORS = [
     "m.stripe.network", "q.stripe.com", "r.stripe.com",
     "hooks.stripe.com", "invoice.stripe.com", "billing.stripe.com",
     "connect.stripe.com",
+]
+
+# Wallet keywords for static method
+WALLET_KEYWORDS = [
+    "add funds", "wallet", "balance", "top up", "top-up",
+    "deposit", "add balance",
 ]
 
 # Single combined regex for HTML indicators (escaping dots for precision)
@@ -115,7 +125,11 @@ STRIPE_NETWORK_PATTERNS = [
     re.compile(r"api\.stripe\.com", re.I),
     re.compile(r"m\.stripe\.(?:com|network)", re.I),
     re.compile(r"(?:q|r|pay|payments)\.stripe\.com", re.I),
-    re.compile(r"(?:checkout|hooks|billing|connect|invoice|merchant-ui-api)\.stripe\.com", re.I),
+    re.compile(
+        r"(?:checkout|hooks|billing|connect|invoice|merchant-ui-api)"
+        r"\.stripe\.com",
+        re.I,
+    ),
 ]
 
 # Wallet keywords combined into one regex
@@ -209,6 +223,7 @@ def _check_harvester_fast(html_lower: str) -> tuple[bool, bool, float | None]:
 # ---------------------------------------------------------------------------
 # SiteValidator -- two-tier architecture
 # ---------------------------------------------------------------------------
+
 
 class SiteValidator:
     """High-performance concurrent site validator.
@@ -458,18 +473,20 @@ class SiteValidator:
                         return r
 
                 tasks = [asyncio.create_task(_bounded(u)) for u in urls]
-                results = await asyncio.gather(*tasks, return_exceptions=False)
+                raw_results = await asyncio.gather(*tasks, return_exceptions=True)
                 await browser.close()
+
+                for r in raw_results:
+                    if isinstance(r, ValidationResult):
+                        results.append(r)
 
         except Exception as exc:
             logger.error("Deep scan failed: %s", exc)
 
-        return [r for r in results if isinstance(r, ValidationResult)]
+        return results
 
     async def _deep_scan_one(self, browser, url: str) -> ValidationResult:
         """Run all checks on a single URL using Playwright."""
-        from playwright.async_api import Request as PwRequest
-
         result = ValidationResult(url=url, scan_mode="deep")
         context = None
         try:
@@ -482,7 +499,7 @@ class SiteValidator:
 
             network_hits: list[str] = []
 
-            def _on_request(request: PwRequest) -> None:
+            def _on_request(request) -> None:
                 req_url = request.url
                 for pat in STRIPE_NETWORK_PATTERNS:
                     if pat.search(req_url):
@@ -530,7 +547,10 @@ class SiteValidator:
                 await context.close()
 
         status = "PASS" if result.passed else "FAIL"
-        evidence_str = ", ".join(result.stripe_evidence[:3]) if result.stripe_evidence else "none"
+        evidence_str = (
+            ", ".join(result.stripe_evidence[:3])
+            if result.stripe_evidence else "none"
+        )
         logger.info(
             "[%s] %s  stripe=%s(%s) wallet=%s price=%s stock=%s",
             status, url[:80], result.has_stripe, evidence_str,
@@ -539,13 +559,12 @@ class SiteValidator:
         return result
 
     # ------------------------------------------------------------------
-    # Stripe detection – deep multi-layer analysis
+    # Stripe detection -- deep multi-layer analysis
     # ------------------------------------------------------------------
 
     async def _detect_stripe_deep(
         self,
-        page: Page,
-        html: str,
+        page,
         html_lower: str,
         network_hits: list[str],
     ) -> tuple[bool, list[str]]:
@@ -575,9 +594,13 @@ class SiteValidator:
         except Exception:
             pass
 
-        # ---- Layer 5: DOM element inspection ----
+        # Layer 5: DOM element inspection
         try:
-            for sel in ['[data-stripe]', 'iframe[src*="stripe"]', '[class*="StripeElement"]']:
+            for sel in [
+                '[data-stripe]',
+                'iframe[src*="stripe"]',
+                '[class*="StripeElement"]',
+            ]:
                 try:
                     if await page.query_selector(sel):
                         evidence.append(f"dom:{sel}")
@@ -586,7 +609,7 @@ class SiteValidator:
         except Exception:
             pass
 
-        # ---- Layer 6: iframe deep inspection ----
+        # Layer 6: iframe deep inspection
         try:
             for frame in page.frames:
                 if "stripe" in frame.url.lower():
@@ -594,7 +617,7 @@ class SiteValidator:
         except Exception:
             pass
 
-        # ---- Layer 7: JavaScript global variable check ----
+        # Layer 7: JavaScript global variable check
         try:
             js = await page.evaluate("""() => {
                 const ind = [];
@@ -602,7 +625,9 @@ class SiteValidator:
                 if (typeof StripeCheckout !== 'undefined') ind.push('StripeCheckout');
                 if (window.__stripe_mid) ind.push('__stripe_mid');
                 if (window.__stripe_sid) ind.push('__stripe_sid');
-                try { if (document.cookie.includes('__stripe')) ind.push('cookie'); } catch(e) {}
+                try {
+                    if (document.cookie.includes('__stripe')) ind.push('cookie');
+                } catch(e) {}
                 return ind;
             }""")
             for ind in (js or []):
@@ -610,30 +635,34 @@ class SiteValidator:
         except Exception:
             pass
 
-        # De-dup
+        # De-duplicate preserving order
         seen: set[str] = set()
-        unique = [e for e in evidence if not (e in seen or seen.add(e))]
+        unique: list[str] = []
+        for e in evidence:
+            if e not in seen:
+                seen.add(e)
+                unique.append(e)
+
         return len(unique) > 0, unique
 
-        detected = len(evidence) > 0
-        return detected, evidence
-
     # ------------------------------------------------------------------
-    # Wallet / Add-Funds detection
+    # Wallet / Add-Funds detection (static)
     # ------------------------------------------------------------------
 
     @staticmethod
     def _detect_wallet(html_lower: str) -> bool:
+        """Detect wallet keywords in HTML (static fallback)."""
         return any(kw in html_lower for kw in WALLET_KEYWORDS)
 
     # ------------------------------------------------------------------
-    # Harvester item detection
+    # Harvester item detection -- deep (Playwright)
     # ------------------------------------------------------------------
 
-    async def _check_harvester(
-        self, page: Page, html_lower: str, result: ValidationResult
+    async def _check_harvester_deep(
+        self, page, html_lower: str, result: ValidationResult,
     ) -> None:
         """Check Harvester with Playwright."""
+        # Try to click on Harvester link to navigate to product page
         try:
             links = await page.query_selector_all(
                 'a:has-text("Harvester"), [data-product*="harvester" i]'
@@ -642,8 +671,8 @@ class SiteValidator:
                 await links[0].click(timeout=5000)
                 await page.wait_for_timeout(2500)
                 html_lower = (await page.content()).lower()
-            except Exception:
-                pass  # stay on the current page
+        except Exception:
+            pass  # stay on the current page
 
         # Check if "harvester" is even mentioned
         if "harvester" not in html_lower:
@@ -653,42 +682,25 @@ class SiteValidator:
         result.harvester_found = True
         has_oos = _OOS_RE.search(html_lower) is not None
 
+        # Check for enabled buy/cart buttons
+        atc_enabled = False
         try:
             btns = await page.query_selector_all(
                 'button:has-text("Add to Cart"), button:has-text("Buy Now"), '
                 'button:has-text("Purchase")'
             )
-            atc_enabled = any([await b.is_enabled() for b in btns]) if btns else False
+            for btn in btns:
+                if await btn.is_enabled():
+                    atc_enabled = True
+                    break
         except Exception:
-            atc_enabled = False
+            pass
 
         result.harvester_in_stock = atc_enabled or (
             not has_oos and _IN_STOCK_RE.search(html_lower) is not None
         )
-        atc_enabled = False
-        for btn in atc_btns:
-            if await btn.is_enabled():
-                atc_enabled = True
-                break
 
-        result.harvester_in_stock = atc_enabled or (not has_oos and "in stock" in html_lower)
-
-        # --- Price extraction ---
-        # Strategy: look near the word "harvester" for a dollar amount
-        price_candidates: list[float] = []
-
-        # Search page text segments around "harvester"
-        body_text = await page.inner_text("body")
-        body_lower = body_text.lower()
-        idx = body_lower.find("harvester")
-        if idx != -1:
-            window = body_text[max(0, idx - 300): idx + 500]
-            for match in PRICE_RE.finditer(window):
-                try:
-                    price_candidates.append(float(match.group(1)))
-                except ValueError:
-                    pass
-
+        # Price extraction -- look near "harvester" in page text
         try:
             body = await page.inner_text("body")
             body_lower = body.lower()

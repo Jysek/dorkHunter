@@ -32,8 +32,23 @@ def test_no_keys_raises():
 
 def test_rotate_wraps_around():
     km = KeyManager(["a", "b", "c", "d"])
-    km.rotate()  # kill a → now b
-    km.rotate()  # kill b → now c
-    km.rotate()  # kill c → now d
+    km.rotate()  # kill a -> now b
+    km.rotate()  # kill b -> now c
+    km.rotate()  # kill c -> now d
     assert km.current_key == "d"
     assert km.alive_count == 1
+
+
+def test_mark_success():
+    """mark_success should not raise."""
+    km = KeyManager(["a"])
+    km.mark_success()
+    assert km.current_key == "a"
+
+
+def test_repr():
+    km = KeyManager(["a", "b"])
+    r = repr(km)
+    assert "KeyManager" in r
+    assert "total=2" in r
+    assert "alive=2" in r

@@ -1,14 +1,13 @@
 """Tests for the site validator detection helpers (unit-level, no browser)."""
 
 from mm2hunter.scraper.validator import (
-    SiteValidator,
     STRIPE_HTML_INDICATORS,
+    SiteValidator,
+    ValidationResult,
+    _check_harvester_fast,
     _detect_stripe_fast,
     _detect_wallet_fast,
-    _check_harvester_fast,
-    ValidationResult,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fast stripe detection (pre-compiled combined regex)
@@ -56,7 +55,6 @@ def test_stripe_detection_data_attribute():
 
 def test_stripe_detection_stripe_element_class():
     html = '<div class="StripeElement">card input</div>'
-    # "stripeelement" is in our indicators lowercased
     detected, _ = _detect_stripe_fast(html.lower())
     assert detected is True
 
@@ -80,18 +78,25 @@ def test_stripe_detection_payment_intent():
     assert detected is True
 
 
+def test_stripe_fast_negative():
+    html = '<html><body>Just a normal page</body></html>'
+    detected, evidence = _detect_stripe_fast(html.lower())
+    assert detected is False
+    assert evidence == []
+
+
 # ---------------------------------------------------------------------------
 # Wallet detection (pre-compiled combined regex)
 # ---------------------------------------------------------------------------
 
 def test_wallet_detection_add_funds():
     html = '<a href="/wallet">Add Funds</a>'
-    assert SiteValidator._detect_wallet(html.lower()) is True
+    assert _detect_wallet_fast(html.lower()) is True
 
 
 def test_wallet_detection_balance():
     html = '<span class="user-balance">Balance: $0.00</span>'
-    assert SiteValidator._detect_wallet(html.lower()) is True
+    assert _detect_wallet_fast(html.lower()) is True
 
 
 def test_wallet_detection_negative():
@@ -107,6 +112,22 @@ def test_wallet_detection_top_up():
 def test_wallet_detection_deposit():
     html = '<a href="/deposit">Deposit Now</a>'
     assert _detect_wallet_fast(html.lower()) is True
+
+
+def test_wallet_static_method():
+    html = '<a href="/wallet">Add Funds</a>'
+    assert SiteValidator._detect_wallet(html.lower()) is True
+
+
+def test_wallet_static_method_negative():
+    html = '<span>No wallet here</span>'
+    # "wallet" is in the text so this should be True
+    assert SiteValidator._detect_wallet(html.lower()) is True
+
+
+def test_wallet_static_really_negative():
+    html = '<span>Welcome to the shop</span>'
+    assert SiteValidator._detect_wallet(html.lower()) is False
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +186,14 @@ def test_harvester_buy_now_in_stock():
     assert price == 5.00
 
 
+def test_harvester_no_price():
+    html = '<div>Harvester item available</div><button>Buy Now</button>'
+    found, in_stock, price = _check_harvester_fast(html.lower())
+    assert found is True
+    assert in_stock is True
+    assert price is None
+
+
 # ---------------------------------------------------------------------------
 # ValidationResult model
 # ---------------------------------------------------------------------------
@@ -193,3 +222,10 @@ def test_validation_result_defaults():
     assert r.passed is False
     assert r.scan_mode == "fast"
     assert r.error is None
+
+
+def test_validation_result_deep_mode():
+    r = ValidationResult(url="https://test.com", scan_mode="deep")
+    assert r.scan_mode == "deep"
+    d = r.to_dict()
+    assert d["scan_mode"] == "deep"

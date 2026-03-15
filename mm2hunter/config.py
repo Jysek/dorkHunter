@@ -47,7 +47,7 @@ class SerperConfig:
         conc = os.getenv("SERPER_SEARCH_CONCURRENCY")
         if conc:
             self.search_concurrency = max(1, int(conc))
-        self.queries_file = os.getenv("QUERIES_FILE") or None
+        self.queries_file = os.getenv("QUERIES_FILE", "query.txt") or None
 
 
 @dataclass
@@ -59,6 +59,7 @@ class ScraperConfig:
     max_concurrency: int = 500  # concurrent connections for fast scan
     max_threads: int = 500  # alias -- worker tasks
     deep_scan_concurrency: int = 5  # Playwright tabs for deep scan
+    enable_deep_scan: bool = True  # whether to run Playwright deep scan
     user_agent: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -77,6 +78,12 @@ class ScraperConfig:
         threads = os.getenv("SCRAPER_MAX_THREADS")
         if threads:
             self.max_threads = int(threads)
+        deep = os.getenv("ENABLE_DEEP_SCAN")
+        if deep is not None:
+            self.enable_deep_scan = deep.lower() in ("true", "1", "yes")
+        deep_conc = os.getenv("SCRAPER_DEEP_SCAN_CONCURRENCY")
+        if deep_conc:
+            self.deep_scan_concurrency = max(1, int(deep_conc))
         self.proxy_url = os.getenv("PROXY_URL") or None
 
 
@@ -113,6 +120,7 @@ class AppConfig:
     validation: ValidationConfig = field(default_factory=ValidationConfig)
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
     data_dir: Path = DATA_DIR
+    search_mode: str = "api"  # "api" or "free" (no API key needed)
 
 
 # Singleton convenience -------------------------------------------------

@@ -22,7 +22,7 @@ logger = get_logger("dashboard")
 # ---------------------------------------------------------------------------
 # HTML template (self-contained, no external assets)
 # NOTE: We use str.format() so we must double every literal { } that is NOT
-#       a placeholder.  CSS / JS braces → {{ }}
+#       a placeholder.  CSS / JS braces -> {{ }}
 # ---------------------------------------------------------------------------
 
 HTML_TEMPLATE = """\
@@ -39,7 +39,8 @@ HTML_TEMPLATE = """\
   body {{ font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg);
          color:var(--txt); padding:2rem; }}
   h1 {{ color:var(--accent); margin-bottom:.25rem; font-size:1.8rem; }}
-  h2 {{ color:var(--accent); margin-top:2rem; margin-bottom:.75rem; font-size:1.3rem; }}
+  h2 {{ color:var(--accent); margin-top:2rem; margin-bottom:.75rem;
+       font-size:1.3rem; }}
   .subtitle {{ color:var(--muted); margin-bottom:1.5rem; font-size:.95rem; }}
   .stats {{ display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem; }}
   .stat {{ background:var(--card); border-radius:10px; padding:1rem 1.5rem;
@@ -47,9 +48,11 @@ HTML_TEMPLATE = """\
   .stat .num {{ font-size:2rem; font-weight:700; }}
   .stat .lbl {{ color:var(--muted); font-size:.8rem; text-transform:uppercase; }}
   table {{ width:100%; border-collapse:collapse; margin-top:1rem; }}
-  th, td {{ padding:.65rem 1rem; text-align:left; border-bottom:1px solid #2a2d3a; }}
+  th, td {{ padding:.65rem 1rem; text-align:left;
+           border-bottom:1px solid #2a2d3a; }}
   th {{ background:var(--card); color:var(--accent); font-size:.8rem;
-       text-transform:uppercase; letter-spacing:.04em; position:sticky; top:0; }}
+       text-transform:uppercase; letter-spacing:.04em; position:sticky;
+       top:0; }}
   tr:hover {{ background:#1e2130; }}
   .badge {{ display:inline-block; padding:2px 8px; border-radius:4px;
            font-size:.75rem; font-weight:600; }}
@@ -83,24 +86,50 @@ HTML_TEMPLATE = """\
 <p class="subtitle">Automated Roblox Murder Mystery 2 shop finder &amp; validator</p>
 
 <div class="stats">
-  <div class="stat"><div class="num">{total_scanned}</div><div class="lbl">Scanned</div></div>
-  <div class="stat"><div class="num" style="color:var(--green)">{total_passed}</div><div class="lbl">Passed</div></div>
-  <div class="stat"><div class="num" style="color:var(--red)">{total_failed}</div><div class="lbl">Failed</div></div>
-  <div class="stat"><div class="num">{stripe_detected}</div><div class="lbl">Stripe</div></div>
-  <div class="stat"><div class="num">{wallet_detected}</div><div class="lbl">Wallet</div></div>
-  <div class="stat"><div class="num">{harvester_found}</div><div class="lbl">Harvester</div></div>
-  <div class="stat"><div class="num">{total_discovered}</div><div class="lbl">Discovered</div></div>
+  <div class="stat">
+    <div class="num">{total_scanned}</div><div class="lbl">Scanned</div>
+  </div>
+  <div class="stat">
+    <div class="num" style="color:var(--green)">{total_passed}</div>
+    <div class="lbl">Passed</div>
+  </div>
+  <div class="stat">
+    <div class="num" style="color:var(--red)">{total_failed}</div>
+    <div class="lbl">Failed</div>
+  </div>
+  <div class="stat">
+    <div class="num">{stripe_detected}</div><div class="lbl">Stripe</div>
+  </div>
+  <div class="stat">
+    <div class="num">{wallet_detected}</div><div class="lbl">Wallet</div>
+  </div>
+  <div class="stat">
+    <div class="num">{harvester_found}</div><div class="lbl">Harvester</div>
+  </div>
+  <div class="stat">
+    <div class="num">{total_discovered}</div><div class="lbl">Discovered</div>
+  </div>
 </div>
 
 <div class="actions">
-  <a class="btn" href="/api/results?format=json" download="mm2_results.json">Download JSON</a>
-  <a class="btn" href="/api/results?format=csv" download="mm2_results.csv">Download CSV</a>
-  <a class="btn" href="/api/discovered" download="discovered_urls.txt">Download Discovered URLs</a>
+  <a class="btn" href="/api/results?format=json" download="mm2_results.json">
+    Download JSON
+  </a>
+  <a class="btn" href="/api/results?format=csv" download="mm2_results.csv">
+    Download CSV
+  </a>
+  <a class="btn" href="/api/discovered" download="discovered_urls.txt">
+    Download Discovered URLs
+  </a>
 </div>
 
 <div class="tab-bar">
-  <button class="tab active" onclick="switchTab('validated')">Validated Results</button>
-  <button class="tab" onclick="switchTab('discovered')">Discovered URLs (pre-validation)</button>
+  <button class="tab active" onclick="switchTab('validated')">
+    Validated Results
+  </button>
+  <button class="tab" onclick="switchTab('discovered')">
+    Discovered URLs (pre-validation)
+  </button>
 </div>
 
 <div id="tab-validated" class="tab-content active">
@@ -115,8 +144,12 @@ HTML_TEMPLATE = """\
 
 <script>
 function switchTab(name) {{
-  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(
+    el => el.classList.remove('active')
+  );
+  document.querySelectorAll('.tab').forEach(
+    el => el.classList.remove('active')
+  );
   document.getElementById('tab-' + name).classList.add('active');
   event.target.classList.add('active');
 }}
@@ -133,13 +166,17 @@ ROW_TEMPLATE = """\
   <td>{harvester_price}</td>
   <td><span class="badge {stock_cls}">{stock_txt}</span></td>
   <td><span class="badge {status_cls}">{status_txt}</span></td>
+  <td>{scan_mode}</td>
   <td>{discovered_at}</td>
 </tr>"""
 
 
 def _build_table(results: list[dict]) -> str:
     if not results:
-        return '<div class="empty">No validated results yet. Run a search first.</div>'
+        return (
+            '<div class="empty">No validated results yet. '
+            "Run a search first.</div>"
+        )
     rows = []
     for r in results:
         price = r.get("harvester_price")
@@ -155,12 +192,14 @@ def _build_table(results: list[dict]) -> str:
             stock_txt="In Stock" if r["harvester_in_stock"] else "N/A",
             status_cls="pass" if r["passed"] else "fail",
             status_txt="PASS" if r["passed"] else "FAIL",
+            scan_mode=r.get("scan_mode", "fast"),
             discovered_at=r.get("discovered_at", "")[:19],
         ))
     header = (
         "<table><thead><tr>"
         "<th>URL</th><th>Stripe</th><th>Wallet</th>"
-        "<th>Price</th><th>Stock</th><th>Status</th><th>Discovered</th>"
+        "<th>Price</th><th>Stock</th><th>Status</th>"
+        "<th>Mode</th><th>Discovered</th>"
         "</tr></thead><tbody>"
     )
     return header + "\n".join(rows) + "</tbody></table>"
@@ -169,7 +208,10 @@ def _build_table(results: list[dict]) -> str:
 def _build_discovered_html(urls: list[str]) -> str:
     """Build the discovered URLs panel."""
     if not urls:
-        return '<div class="empty">No discovered URLs yet. Run a search first.</div>'
+        return (
+            '<div class="empty">No discovered URLs yet. '
+            "Run a search first.</div>"
+        )
     links = "\n".join(
         f'<a href="{u}" target="_blank" rel="noopener">{u}</a>' for u in urls
     )
@@ -190,7 +232,9 @@ class Dashboard:
         self._app.router.add_get("/", self._handle_index)
         self._app.router.add_get("/api/results", self._handle_api_results)
         self._app.router.add_get("/api/stats", self._handle_api_stats)
-        self._app.router.add_get("/api/discovered", self._handle_api_discovered)
+        self._app.router.add_get(
+            "/api/discovered", self._handle_api_discovered,
+        )
         self._runner: web.AppRunner | None = None
 
     # ------------------------------------------------------------------
@@ -216,7 +260,7 @@ class Dashboard:
         return {
             "total_scanned": 0, "total_passed": 0, "total_failed": 0,
             "stripe_detected": 0, "wallet_detected": 0, "harvester_found": 0,
-            "generated_at": "—",
+            "generated_at": "---",
         }
 
     def _load_discovered_urls(self) -> list[str]:
@@ -247,30 +291,42 @@ class Dashboard:
         )
         return web.Response(text=html, content_type="text/html")
 
-    async def _handle_api_results(self, request: web.Request) -> web.Response:
+    async def _handle_api_results(
+        self, request: web.Request,
+    ) -> web.Response:
         fmt = request.query.get("format", "json")
         if fmt == "csv":
             csv_path = self._data_dir / "results.csv"
             if csv_path.exists():
                 return web.FileResponse(csv_path, headers={
-                    "Content-Disposition": "attachment; filename=mm2_results.csv"
+                    "Content-Disposition":
+                        "attachment; filename=mm2_results.csv",
                 })
-            return web.Response(text="No CSV available yet.", status=404)
+            return web.Response(
+                text="No CSV available yet.", status=404,
+            )
         results = self._load_results()
         return web.json_response(results)
 
-    async def _handle_api_stats(self, request: web.Request) -> web.Response:
+    async def _handle_api_stats(
+        self, request: web.Request,
+    ) -> web.Response:
         return web.json_response(self._load_stats())
 
-    async def _handle_api_discovered(self, request: web.Request) -> web.Response:
+    async def _handle_api_discovered(
+        self, request: web.Request,
+    ) -> web.Response:
         """Serve the discovered_urls.txt file."""
         txt_path = self._data_dir / "discovered_urls.txt"
         if txt_path.exists():
             return web.FileResponse(txt_path, headers={
                 "Content-Type": "text/plain; charset=utf-8",
-                "Content-Disposition": "attachment; filename=discovered_urls.txt",
+                "Content-Disposition":
+                    "attachment; filename=discovered_urls.txt",
             })
-        return web.Response(text="No discovered URLs file yet.", status=404)
+        return web.Response(
+            text="No discovered URLs file yet.", status=404,
+        )
 
     # ------------------------------------------------------------------
     async def start(self) -> None:
@@ -280,7 +336,8 @@ class Dashboard:
         site = web.TCPSite(self._runner, self._cfg.host, self._cfg.port)
         await site.start()
         logger.info(
-            "Dashboard running at http://%s:%s", self._cfg.host, self._cfg.port
+            "Dashboard running at http://%s:%s",
+            self._cfg.host, self._cfg.port,
         )
 
     async def stop(self) -> None:
