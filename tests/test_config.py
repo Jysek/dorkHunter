@@ -1,15 +1,12 @@
 """Tests for configuration loading."""
 
-from mm2hunter.config import AppConfig, ScraperConfig, SerperConfig
+from dorkhunter.config import AppConfig, SearchConfig, SerperConfig
 
 
 def test_default_config():
     cfg = AppConfig()
-    assert cfg.validation.max_price_usd == 6.00
-    assert cfg.validation.target_item == "Harvester"
-    assert cfg.scraper.headless is True
-    assert cfg.dashboard.port == 8080
     assert cfg.search_mode == "api"
+    assert cfg.output_format == "txt"
 
 
 def test_serper_keys_from_env(monkeypatch):
@@ -24,35 +21,18 @@ def test_serper_empty_env(monkeypatch):
     assert sc.api_keys == []
 
 
-def test_scraper_defaults():
-    cfg = ScraperConfig()
-    assert cfg.max_concurrency == 500
-    assert cfg.deep_scan_concurrency == 5
-    assert cfg.enable_deep_scan is True
+def test_search_config_defaults():
+    cfg = SearchConfig()
+    assert cfg.max_threads == 10
+    assert cfg.timeout_ms == 15_000
+    assert "duckduckgo" in cfg.free_engines
+    assert "bing" in cfg.free_engines
 
 
-def test_scraper_concurrency_from_env(monkeypatch):
-    monkeypatch.setenv("SCRAPER_MAX_CONCURRENCY", "800")
-    cfg = ScraperConfig()
-    assert cfg.max_concurrency == 800
-
-
-def test_deep_scan_env(monkeypatch):
-    monkeypatch.setenv("ENABLE_DEEP_SCAN", "false")
-    cfg = ScraperConfig()
-    assert cfg.enable_deep_scan is False
-
-
-def test_deep_scan_env_true(monkeypatch):
-    monkeypatch.setenv("ENABLE_DEEP_SCAN", "true")
-    cfg = ScraperConfig()
-    assert cfg.enable_deep_scan is True
-
-
-def test_deep_scan_concurrency_env(monkeypatch):
-    monkeypatch.setenv("SCRAPER_DEEP_SCAN_CONCURRENCY", "10")
-    cfg = ScraperConfig()
-    assert cfg.deep_scan_concurrency == 10
+def test_search_threads_from_env(monkeypatch):
+    monkeypatch.setenv("SEARCH_MAX_THREADS", "20")
+    cfg = SearchConfig()
+    assert cfg.max_threads == 20
 
 
 def test_serper_results_per_query_default():
@@ -74,14 +54,13 @@ def test_serper_search_concurrency_from_env(monkeypatch):
 def test_queries_file_default(monkeypatch):
     monkeypatch.delenv("QUERIES_FILE", raising=False)
     cfg = SerperConfig()
-    # Default is "query.txt" from the env loader
-    assert cfg.queries_file == "query.txt"
+    assert cfg.queries_file == "dorks.txt"
 
 
 def test_queries_file_from_env(monkeypatch):
-    monkeypatch.setenv("QUERIES_FILE", "my_queries.txt")
+    monkeypatch.setenv("QUERIES_FILE", "my_dorks.txt")
     cfg = SerperConfig()
-    assert cfg.queries_file == "my_queries.txt"
+    assert cfg.queries_file == "my_dorks.txt"
 
 
 def test_app_config_search_mode():
@@ -89,3 +68,31 @@ def test_app_config_search_mode():
     assert cfg.search_mode == "api"
     cfg.search_mode = "free"
     assert cfg.search_mode == "free"
+
+
+def test_pages_per_query_default():
+    cfg = SerperConfig()
+    assert cfg.pages_per_query == 1
+
+
+def test_pages_per_query_from_env(monkeypatch):
+    monkeypatch.setenv("SERPER_PAGES_PER_QUERY", "5")
+    cfg = SerperConfig()
+    assert cfg.pages_per_query == 5
+
+
+def test_free_engines_from_env(monkeypatch):
+    monkeypatch.setenv("FREE_SEARCH_ENGINES", "yahoo,google,ask")
+    cfg = SearchConfig()
+    assert cfg.free_engines == ["yahoo", "google", "ask"]
+
+
+def test_proxy_from_env(monkeypatch):
+    monkeypatch.setenv("PROXY_URL", "socks5://host:1080")
+    cfg = SearchConfig()
+    assert cfg.proxy_url == "socks5://host:1080"
+
+
+def test_proxy_default():
+    cfg = SearchConfig()
+    assert cfg.proxy_url is None

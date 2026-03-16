@@ -22,9 +22,6 @@ data/
 .DS_Store
 Thumbs.db
 
-# Playwright browsers cache
-pw-browsers/
-
 # Distribution
 dist/
 build/
