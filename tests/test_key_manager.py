@@ -2,7 +2,7 @@
 
 import pytest
 
-from mm2hunter.search.key_manager import KeyExhaustedError, KeyManager
+from dorkhunter.search.key_manager import KeyExhaustedError, KeyManager
 
 
 def test_initial_key():
@@ -32,15 +32,14 @@ def test_no_keys_raises():
 
 def test_rotate_wraps_around():
     km = KeyManager(["a", "b", "c", "d"])
-    km.rotate()  # kill a -> now b
-    km.rotate()  # kill b -> now c
-    km.rotate()  # kill c -> now d
+    km.rotate()
+    km.rotate()
+    km.rotate()
     assert km.current_key == "d"
     assert km.alive_count == 1
 
 
 def test_mark_success():
-    """mark_success should not raise."""
     km = KeyManager(["a"])
     km.mark_success()
     assert km.current_key == "a"

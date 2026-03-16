@@ -1,6 +1,4 @@
-"""
-Structured logging helper for MM2 Hunter.
-"""
+"""Structured logging helper for DorkHunter."""
 
 from __future__ import annotations
 
@@ -29,4 +27,4 @@ def setup_logging(level: str = "INFO") -> None:
 def get_logger(name: str) -> logging.Logger:
     """Return a child logger with the given name."""
     setup_logging()
-    return logging.getLogger(f"mm2hunter.{name}")
+    return logging.getLogger(f"dorkhunter.{name}")

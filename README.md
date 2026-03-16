@@ -1,57 +1,53 @@
-# mm2Hunter
+# DorkHunter
 
-Automated search and validation tool for discovering Roblox **Murder Mystery 2** (MM2) item shops. Finds e-commerce sites selling MM2 items, verifies they use **Stripe** as a payment gateway, have an **Add Funds / Wallet** system, and checks that the **Harvester** item is in stock at **$6.00 or less**.
+Automated dork query URL extraction tool. Load Google dork queries, process them through multiple search engines, and save all extracted URLs in raw format (TXT, JSON, CSV).
 
 ## Features
 
-- **Interactive Menu** -- modern, colorful terminal UI with 8 operations
+- **Interactive CLI** -- modern terminal UI with colorful menus
 - **Two Search Modes**:
-  - **API Mode** -- Serper.dev API with auto-rotation and multi-page support
-  - **Free Mode** -- DuckDuckGo + Bing scraping (no API keys or proxy required!)
-- **Validate Raw URLs** -- skip search entirely and validate URLs from a text file
-- **Load Custom Queries** -- load search queries from a TXT file (default: `query.txt`)
-- **Runtime Parameters** -- configure concurrency and pages-per-query at startup
-- **Multi-Page Search** -- fetch multiple result pages per query for more results
-- **API Key Auto-Rotation** -- pool of Serper.dev keys with automatic failover on 403/429
-- **Pre-Validation URL Export** -- saves all discovered URLs to `discovered_urls.txt` before validation starts
-- **Real-time File Updates** -- output files are updated incrementally with throttled flushing
-- **Two-Tier Validation**:
-  - **Fast Scan** -- aiohttp with 500+ concurrent connections, pre-compiled regex (500+ URLs/sec)
-  - **Deep Scan** (optional) -- Playwright headless Chromium with 8-layer Stripe detection
-- **Proxy Support** -- route requests through rotating proxies to avoid IP bans
-- **Reporting** -- exports results to **JSON** and **CSV**
-- **Web Dashboard** -- lightweight aiohttp dashboard with stats, table, and download buttons
+  - **API Mode** -- Serper.dev API with key auto-rotation and multi-page support
+  - **Free Mode (Proxyless)** -- choose from 5 search engines, no API keys needed
+- **5 Search Engines** (Free Mode):
+  - DuckDuckGo (most reliable)
+  - Bing
+  - Yahoo
+  - Google (may block scrapers)
+  - Ask.com
+- **Multi-Page Search** -- fetch multiple result pages per dork for deeper coverage
+- **Concurrent Execution** -- configurable thread count for parallel processing
+- **Multiple Output Formats** -- TXT, JSON, CSV, or all at once
+- **Real-time File Updates** -- URLs are written to disk as they are discovered
+- **De-duplication** -- automatic removal of duplicate URLs
+- **Junk Filtering** -- filters out search engine domains, social media, etc.
+- **API Key Auto-Rotation** -- pool of Serper.dev keys with automatic failover
+- **78 Tests** -- comprehensive test coverage (all passing)
 
 ## Project Structure
 
 ```
-mm2Hunter/
-├── mm2hunter/
+dorkhunter/
+├── dorkhunter/
 │   ├── __init__.py
 │   ├── cli.py                 # Interactive menu entry-point
 │   ├── config.py              # Central configuration (env-driven)
-│   ├── orchestrator.py        # Wires search -> validate -> report
+│   ├── orchestrator.py        # Wires search -> export pipeline
 │   ├── search/
 │   │   ├── engine.py          # Serper.dev search client (API mode)
-│   │   ├── free_engine.py     # DuckDuckGo/Bing search (Free mode)
+│   │   ├── free_engine.py     # Multi-engine free search (DDG/Bing/Yahoo/Google/Ask)
 │   │   └── key_manager.py     # API key pool & rotation
-│   ├── scraper/
-│   │   └── validator.py       # Two-tier site validator (fast + deep)
 │   ├── reporting/
-│   │   ├── exporter.py        # JSON / CSV export + RealtimeExporter
-│   │   └── dashboard.py       # Web dashboard (aiohttp)
+│   │   └── exporter.py        # TXT / JSON / CSV export + RealtimeExporter
 │   └── utils/
 │       └── logging.py         # Structured logging helper
-├── tests/                     # 104 tests (all passing)
+├── tests/                     # 78 tests (all passing)
 │   ├── test_config.py
 │   ├── test_key_manager.py
-│   ├── test_validator.py
-│   ├── test_exporter.py
-│   ├── test_orchestrator.py
-│   ├── test_search_engine.py
 │   ├── test_free_engine.py
-│   └── test_dashboard.py
-├── query.txt                  # Default queries file
+│   ├── test_search_engine.py
+│   ├── test_orchestrator.py
+│   └── test_exporter.py
+├── dorks.txt                  # Sample dork queries file
 ├── pyproject.toml
 ├── requirements.txt
 ├── .env.example
@@ -63,14 +59,11 @@ mm2Hunter/
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/YOUR_USER/mm2Hunter.git
-cd mm2Hunter
+git clone https://github.com/YOUR_USER/dorkhunter.git
+cd dorkhunter
 
 python -m venv venv && source venv/bin/activate
 pip install -e ".[dev]"
-
-# Install Playwright browsers (only needed for deep scan)
-playwright install chromium
 ```
 
 ### 2. Configure
@@ -82,124 +75,132 @@ cp .env.example .env
 #   - For Free mode: no configuration needed!
 ```
 
-### 3. Run
+### 3. Create Your Dorks File
 
 ```bash
-mm2hunter
+# Edit dorks.txt (one dork per line)
+cat > dorks.txt << 'EOF'
+inurl:admin intitle:"login"
+intitle:"index of" "parent directory"
+site:example.com filetype:pdf
+inurl:"/phpmyadmin/"
+EOF
+```
+
+### 4. Run
+
+```bash
+dorkhunter
 ```
 
 The tool displays an interactive menu:
 
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  ██╗  ██╗██╗   ██╗███╗   ██╗████████╗███████╗██████╗
-  ██║  ██║██║   ██║████╗  ██║╚══██╔══╝██╔════╝██╔══██╗
-  ███████║██║   ██║██╔██╗ ██║   ██║   █████╗  ██████╔╝
-  ██╔══██║██║   ██║██║╚██╗██║   ██║   ██╔══╝  ██╔══██╗
-  ██║  ██║╚██████╔╝██║ ╚████║   ██║   ███████╗██║  ██║
-  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
+    ██████╗  ██████╗ ██████╗ ██╗  ██╗
+    ██╔══██╗██╔═══██╗██╔══██╗██║ ██╔╝
+    ██║  ██║██║   ██║██████╔╝█████╔╝
+    ██║  ██║██║   ██║██╔══██╗██╔═██╗
+    ██████╔╝╚██████╔╝██║  ██║██║  ██╗
+    ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
 
-  MM2 Shop Discovery Tool  v3.0.0
+    ██╗  ██╗██╗   ██╗███╗   ██╗████████╗███████╗██████╗
+    ██║  ██║██║   ██║████╗  ██║╚══██╔══╝██╔════╝██╔══██╗
+    ███████║██║   ██║██╔██╗ ██║   ██║   █████╗  ██████╔╝
+    ██╔══██║██║   ██║██║╚██╗██║   ██║   ██╔══╝  ██╔══██╗
+    ██║  ██║╚██████╔╝██║ ╚████║   ██║   ███████╗██║  ██║
+    ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    Dork Query URL Extraction Tool  v4.0.0
 
-  OPERATIONS
-  ──────────────────────────────────────────────────
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  1  Search             Run search & validation (API)
-  2  Free Search        No API keys needed (DDG/Bing)
-  3  Validate URLs      Validate URLs from a file
-  4  Dashboard          Start the web dashboard only
-  5  Full Pipeline      Search + validate + dashboard
-  6  Load Queries       Load queries from file, search
-  7  Settings           View current configuration
+    OPERATIONS
+    ────────────────────────────────────────────────
 
-  0  Exit
+    [1]  API Search       Serper.dev API (requires keys)
+    [2]  Free Search      Proxyless search (pick engines)
+    [3]  Load Dorks       Load dorks from file, then search
+    [4]  Settings         View current configuration
+    [5]  Help             Usage guide & tips
+
+    [0]  Exit
 ```
 
-### 4. Operations Explained
+### 5. Operations Explained
 
 | # | Operation | Description |
 |---|-----------|-------------|
-| 1 | **Search** | API-based search via Serper.dev (requires API keys) |
-| 2 | **Free Search** | Search via DuckDuckGo + Bing -- **no API keys or proxy needed** |
-| 3 | **Validate URLs** | Provide a file with URLs (one per line) to validate directly |
-| 4 | **Dashboard** | Start the web dashboard to view existing results |
-| 5 | **Full Pipeline** | Search + validate + serve dashboard (supports both modes) |
-| 6 | **Load Queries** | Load queries from a TXT file, then run search + validate |
-| 7 | **Settings** | View current configuration and runtime parameters |
+| 1 | **API Search** | Search via Serper.dev API (fast, requires API keys) |
+| 2 | **Free Search** | Proxyless search -- choose engines (DDG, Bing, Yahoo, Google, Ask) |
+| 3 | **Load Dorks** | Load dorks file, pick mode and engines, then search |
+| 4 | **Settings** | View current configuration and parameters |
+| 5 | **Help** | Usage guide and tips |
 | 0 | **Exit** | Exit the tool |
 
-### 5. Query / URL File Format
+### 6. Free Mode -- Engine Selection
 
-**Queries file** (`query.txt`, one query per line, `#` for comments):
+When using Free Search (option 2), you are asked which engines to use:
 
-```text
-# My custom MM2 search queries
-"Murder Mystery 2" "Harvester" buy cheap stripe
-"MM2" godly shop "add funds" wallet
-"Roblox MM2" items store harvester
+```
+  Select Search Engine(s)
+  ────────────────────────────────────────────────
+
+    1  DuckDuckGo      Most reliable, no JS needed
+    2  Bing            Good results, fast
+    3  Yahoo           Decent coverage
+    4  Google          Best results but may block scrapers
+    5  Ask.com         Extra coverage
+
+    A  All Engines     Use all available engines
+
+  > Enter choices (comma-separated, e.g. 1,2,3 or A for all): 1,2
 ```
 
-**Raw URLs file** (one URL per line, `#` for comments):
+### 7. Dork File Format
+
+One dork query per line. Lines starting with `#` are comments:
 
 ```text
-# URLs to validate
-https://mm2shop.example.com
-https://another-store.example.com/harvester
+# Admin panel dorks
+inurl:admin intitle:"login"
+inurl:wp-login.php
+
+# Directory listing dorks
+intitle:"index of" "parent directory"
+intitle:"index of" ".env"
+
+# File type dorks
+site:example.com filetype:pdf
+filetype:sql "insert into"
 ```
 
-### 6. View Results
+### 8. View Results
 
-- **Dashboard**: open `http://localhost:8080` in your browser
-- **Discovered URLs** (pre-validation): `data/discovered_urls.txt`
-- **JSON**: `data/results.json`
-- **CSV**: `data/results.csv`
+Extracted URLs are saved in the `data/` directory:
+
+- **`data/urls.txt`** -- One URL per line (raw, no formatting)
+- **`data/urls.json`** -- JSON format with metadata
+- **`data/urls.csv`** -- Numbered CSV format
+- **`data/stats.json`** -- Extraction statistics
 
 ## Configuration
 
-All settings are driven by environment variables (or a `.env` file).
-Runtime parameters entered via the interactive menu **override** env defaults.
+All settings can be set via environment variables (or a `.env` file).
+Runtime parameters entered via the CLI menu **override** env defaults.
 
 | Variable | Default | Description |
 |---|---|---|
-| `SERPER_API_KEYS` | *(optional)* | Comma-separated Serper.dev API keys (not needed for Free mode) |
-| `SERPER_PAGES_PER_QUERY` | `1` | Number of result pages per query |
-| `SERPER_RESULTS_PER_QUERY` | `100` | Results per page |
-| `SERPER_SEARCH_CONCURRENCY` | `10` | Concurrent Serper API calls |
-| `QUERIES_FILE` | `query.txt` | Path to a TXT file with custom queries |
-| `SCRAPER_HEADLESS` | `true` | Run Playwright in headless mode |
-| `SCRAPER_TIMEOUT_MS` | `12000` | HTTP timeout in milliseconds |
-| `SCRAPER_MAX_CONCURRENCY` | `500` | Max concurrent HTTP connections (fast scan) |
-| `SCRAPER_DEEP_SCAN_CONCURRENCY` | `5` | Max concurrent Playwright tabs (deep scan) |
-| `ENABLE_DEEP_SCAN` | `true` | Enable/disable Playwright deep scan |
-| `PROXY_URL` | *(none)* | Optional rotating proxy URL |
-| `DASHBOARD_HOST` | `0.0.0.0` | Dashboard bind address |
-| `DASHBOARD_PORT` | `8080` | Dashboard port |
-
-## Validation Criteria
-
-A site **passes** when all of the following are true:
-
-1. Stripe payment gateway detected (deep 8-layer detection)
-2. "Add Funds" / Wallet system detected
-3. Harvester item found on the site
-4. Harvester is currently in stock
-5. Harvester price is **<= $6.00**
-
-### Stripe Detection Layers (Deep Scan)
-
-| Layer | Method | What It Checks |
-|-------|--------|----------------|
-| 1 | HTML string scan | `js.stripe.com`, `pk_live_`, `powered by stripe`, etc. |
-| 2 | Network interception | Stripe domains in outgoing requests |
-| 3 | Inline `<script>` analysis | `Stripe(`, `loadStripe(`, `confirmCardPayment`, etc. |
-| 4 | External script `src` | Script tags loading Stripe URLs |
-| 5 | DOM element inspection | `[data-stripe]`, `.StripeElement`, etc. |
-| 6 | iframe deep inspection | Stripe URLs in page frames |
-| 7 | JavaScript globals | `window.Stripe`, `__stripe_mid`, cookies |
-| 8 | CSP meta tags | Whitelisted Stripe domains |
+| `SERPER_API_KEYS` | *(optional)* | Comma-separated Serper.dev API keys |
+| `SERPER_PAGES_PER_QUERY` | `1` | Number of result pages per dork |
+| `SERPER_RESULTS_PER_QUERY` | `100` | Results per page (Serper max: 100) |
+| `SERPER_SEARCH_CONCURRENCY` | `10` | Concurrent API calls |
+| `QUERIES_FILE` | `dorks.txt` | Path to dork queries file |
+| `SEARCH_TIMEOUT_MS` | `15000` | HTTP timeout in milliseconds |
+| `SEARCH_MAX_THREADS` | `10` | Max concurrent threads |
+| `FREE_SEARCH_ENGINES` | `duckduckgo,bing` | Engines for free mode |
+| `PROXY_URL` | *(none)* | Optional proxy URL |
 
 ## Running Tests
 
@@ -207,7 +208,7 @@ A site **passes** when all of the following are true:
 python -m pytest tests/ -v
 ```
 
-All 104 tests pass covering: config, key manager, validator, exporter, orchestrator, search engine, free engine, and dashboard.
+All 78 tests pass covering: config, key manager, free engine (all 5 engines), search engine, orchestrator, and exporter.
 
 ## Tech Stack
 
@@ -215,13 +216,10 @@ All 104 tests pass covering: config, key manager, validator, exporter, orchestra
 |---|---|
 | Language | Python 3.10+ |
 | Search API | Serper.dev (API mode) |
-| Free Search | DuckDuckGo + Bing HTML scraping |
-| Fast Scan | aiohttp (500+ concurrent connections) |
-| Deep Scan | Playwright (async Chromium) |
+| Free Search | DuckDuckGo, Bing, Yahoo, Google, Ask.com |
 | HTTP client | httpx |
-| Dashboard | aiohttp |
 | Config | python-dotenv |
-| Testing | pytest + pytest-asyncio (104 tests) |
+| Testing | pytest + pytest-asyncio (78 tests) |
 
 ## License
 
